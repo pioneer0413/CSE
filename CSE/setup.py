@@ -74,7 +74,7 @@ def setup():
             "tqdm",
             "tensorboard",
             "numba",
-            "numpy",
+            "numpy<2.0",
             "scikit_learn==1.3",
             "pandas==2.1",
             "snntorch",
