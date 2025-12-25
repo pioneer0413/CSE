@@ -1,0 +1,40 @@
+_base_:
+- ../../dataset/electricity.yml
+_custom_imports_:
+- SeqSNN.network
+- SeqSNN.dataset
+- SeqSNN.runner
+
+runner:
+  type: ts
+  task: regression
+  optimizer: Adam
+  lr: 0.001
+  weight_decay: 0.0
+  loss_fn: mse
+  metrics: [r2, rse]
+  observe: loss
+  lower_is_better: True
+  max_epoches: 1000
+  early_stop: 30
+  batch_size: 64
+  aggregate: True
+
+network:
+  type: SpikeRNN
+  hidden_size: 128
+  layers: 2
+  num_steps: 4
+  encoder_type: conv
+  pe_type: none
+  pe_mode: concat
+  num_pe_neuron: 40
+  neuron_pe_scale: 1000.0
+  use_cluster: False
+  n_cluster: 3
+  d_model: 64
+  cluster_method: attention
+
+runtime:
+  seed: 39
+  output_dir: ./output/spikernnElectricity

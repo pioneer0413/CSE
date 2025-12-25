@@ -1,0 +1,36 @@
+_base_:
+- ../../dataset/etth2.yml
+_custom_imports_:
+- SeqSNN.network
+- SeqSNN.dataset
+- SeqSNN.runner
+
+data:
+  is_vsts: True
+
+runner:
+  type: vsts
+  task: regression
+  optimizer: Adam
+  lr: 0.0001
+  weight_decay: 0.0
+  loss_fn: mse
+  metrics: [r2, rrse]
+  observe: loss
+  lower_is_better: True
+  max_epoches: 1000
+  early_stop: 30
+  batch_size: 32
+  aggregate: False
+  denormalize: True
+  valid_variates: 7
+
+network:
+  type: iTransformer
+  d_ff: 1024
+  d_model: 256
+  e_layers: 2
+
+runtime:
+  seed: 42
+  output_dir: ./output/itransformerEtth2

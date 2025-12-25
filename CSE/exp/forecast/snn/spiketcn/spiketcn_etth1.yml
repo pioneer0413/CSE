@@ -1,0 +1,41 @@
+_base_:
+- ../../dataset/etth1.yml
+_custom_imports_:
+- SeqSNN.network
+- SeqSNN.dataset
+- SeqSNN.runner
+
+runner:
+  type: ts
+  task: regression
+  optimizer: Adam
+  lr: 0.001
+  weight_decay: 0.0
+  loss_fn: mse
+  metrics: [r2, rrse]
+  observe: loss
+  lower_is_better: True
+  max_epoches: 1000
+  early_stop: 30
+  batch_size: 24
+  aggregate: True
+
+network:
+  type: SpikeTCN
+  kernel_size: 16
+  num_levels: 3
+  channel: 16
+  dilation: 2
+  dropout: 0.
+  num_steps: 4
+  hidden_size: 64
+  stride: 1
+  encoder_type: conv
+  pe_type: none
+  pe_mode: concat
+  num_pe_neuron: 40
+  neuron_pe_scale: 1000.0
+
+runtime: 
+  seed: 40
+  output_dir: ./output/spiketcnEtth1

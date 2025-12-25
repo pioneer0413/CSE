@@ -1,0 +1,37 @@
+_base_:
+- ../../dataset/etth1.yml
+_custom_imports_:
+- SeqSNN.network
+- SeqSNN.dataset
+- SeqSNN.runner
+
+data:
+  is_vsts: True
+
+runner:
+  type: vsts
+  task: regression
+  optimizer: Adam
+  lr: 0.001
+  weight_decay: 0.0
+  loss_fn: mse
+  metrics: [r2, rse]
+  observe: loss
+  lower_is_better: True
+  max_epoches: 1000
+  early_stop: 30
+  batch_size: 64
+  aggregate: True
+  valid_variates: 7
+
+network:
+  type: iSpikformer
+  dim: 256
+  d_ff: 1024
+  depths: 2
+  num_steps: 4
+  heads: 8
+
+runtime:
+  seed: 39
+  output_dir: ./output/ispikformerEtth1

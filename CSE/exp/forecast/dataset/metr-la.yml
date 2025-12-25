@@ -1,0 +1,9 @@
+data:
+  type: TSMSDataset
+  file: data/metr-la.txt
+  window: 288
+  horizon: 12
+  train_ratio: 0.6
+  test_ratio: 0.2
+  normalize: 4
+  raw_label: False

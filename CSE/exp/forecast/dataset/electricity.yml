@@ -1,0 +1,9 @@
+data:
+  type: TSMSDataset
+  file: data/electricity.txt
+  window: 168
+  horizon: 24
+  train_ratio: 0.6
+  test_ratio: 0.2
+  normalize: 4
+  raw_label: False

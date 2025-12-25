@@ -1,0 +1,9 @@
+data:
+  type: TSMSDataset
+  file: data/weather.txt
+  window: 144
+  horizon: 6
+  train_ratio: 0.8
+  test_ratio: 0.1
+  normalize: 4
+  raw_label: False

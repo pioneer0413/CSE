@@ -1,0 +1,35 @@
+_base_:
+- ../../dataset/weather.yml
+_custom_imports_:
+- SeqSNN.network
+- SeqSNN.dataset
+- SeqSNN.runner
+
+runner:
+  type: ts
+  task: regression
+  optimizer: Adam
+  lr: 0.001
+  weight_decay: 0.0
+  loss_fn: mse
+  metrics: [r2, rse]
+  observe: loss
+  lower_is_better: True
+  max_epoches: 1000
+  early_stop: 30
+  batch_size: 64
+  aggregate: True
+
+network:
+  type: RNN
+  cell_type: RNN
+  emb_dim: 64
+  emb_type: learn
+  hidden_size: 8
+  dropout: 0.5
+  num_layers: 2  
+  is_bidir: True
+
+runtime:
+  seed: 42
+  output_dir: ./output/rnnWeather
