@@ -11,7 +11,7 @@ from ...module.spike_encoding import SpikeEncoder
 from ...module.spike_attention import Block
 
 # clustering
-from ...module.clustering import Cluster_assigner, cluster_base_encoding
+from ...module.clustering import Attention_cluster_assigner, cluster_base_encoding
 
 tau = 2.0  # beta = 1 - 1/tau
 backend = "torch"
@@ -130,7 +130,7 @@ class Spikformer(nn.Module):
         self.use_cluster = use_cluster
         self.device = device
         if self.use_cluster:
-            self.cluster_assigner = Cluster_assigner(
+            self.cluster_assigner = Attention_cluster_assigner(
                 n_vars=input_size,
                 n_cluster=n_cluster,
                 seq_len=max_length,

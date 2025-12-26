@@ -20,17 +20,20 @@ runner:
   lower_is_better: True
   max_epoches: 1000
   early_stop: 30
-  batch_size: 64
+  batch_size: 32
   aggregate: True
   valid_variates: 207
 
 network:
   type: iSpikformer
   dim: 256
-  d_ff: 1024
+  d_ff: 512
   depths: 2
   num_steps: 4
   heads: 8
+  use_cluster: False
+  n_cluster: 3
+  d_model: 64
 
 runtime:
   seed: 42

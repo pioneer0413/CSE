@@ -88,6 +88,7 @@ class TemporalConvNet2D(nn.Module):
         max_length: int = 100,
         input_size: Optional[int] = None,
         weight_file: Optional[Path] = None,
+        device: int = 0,
     ):
         """The implementation of TCN described in https://arxiv.org/abs/1803.01271.
 
@@ -97,8 +98,10 @@ class TemporalConvNet2D(nn.Module):
             emb_type: The type of position embedding to use. Can be "learn" or "static".
             kernel_size: The kernel size of convolutional layers.
             dropout: Dropout rate.
+            device: Device id (default 0).
         """
         super().__init__()
+        self.device = device
         layers = []
         num_channels = [channel] * num_levels
         num_channels.append(1)

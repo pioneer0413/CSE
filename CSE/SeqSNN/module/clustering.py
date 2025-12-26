@@ -2,7 +2,7 @@
 Module: clustering.py
 Modified by: Hyunwoo Kang
 Last Modified: 2025-10-08 16:57
-Changes: Cluster_assigner, Cluster_wise_linear, similarity matrix 및 loss 함수 추가
+Changes: Attention_cluster_assigner, Cluster_wise_linear, similarity matrix 및 loss 함수 추가
 '''
 import torch
 import torch.nn as nn
@@ -10,16 +10,47 @@ import torch.nn.functional as F
 import math
 from math import sqrt
 
-def cluster_base_encoding(cluster_prob, seq_len):
-    cluster_prob_soft = cluster_prob.permute(2,0,1).unsqueeze(-1)
-    cluster_prob_bern = torch.bernoulli(cluster_prob_soft) # K, B, N
-    cluster_prob_extend = cluster_prob_bern.repeat(1,1,1,seq_len)
-    cluster_prob_hard = cluster_prob_soft + (cluster_prob_extend - cluster_prob_soft).detach()
-    return cluster_prob_hard  #[n_cluster, n_vars, seq_len, 1]
+class CSEv1(nn.Module):
+    def __init__(self, method_type='attention', n_cluster=3, d_model=64, device=0, **kwargs):
+        super(CSEv1, self).__init__()
+        self.method_type = method_type
+        self.n_cluster = n_cluster
+        self.d_model = d_model
+        self.device = device
+        self.assigner = None
 
-class Cluster_assigner(nn.Module):
+        if method_type == 'attention':
+            self.assigner = Attention_cluster_assigner(
+                n_vars=kwargs.get('n_vars'),
+                n_cluster=n_cluster,
+                seq_len=kwargs.get('seq_len'),
+                d_model=d_model,
+            )
+        elif method_type == 'kmeans':
+            self.assigner = KMeans_cluster_assigner(
+                n_vars=kwargs.get('n_vars'),
+                n_cluster=n_cluster,
+                seq_len=kwargs.get('seq_len'),
+                d_model=d_model,
+                device=device,
+            )
+        self.to(device)
+
+    def forward(self, inputs):
+        self.cluster_prob, self.cluster_emb, self.x_emb = self.assigner(inputs, self.assigner.cluster_emb if self.method_type=='attention' else self.assigner.centroids)
+        self.clustering_encoding = self.cluster_base_encoding(self.cluster_prob, inputs.size(1))
+        return self.clustering_encoding
+
+    def cluster_base_encoding(self, cluster_prob, seq_len):
+        cluster_prob_soft = cluster_prob.permute(2,0,1).unsqueeze(-1)
+        cluster_prob_bern = torch.bernoulli(cluster_prob_soft) # K, B, N
+        cluster_prob_extend = cluster_prob_bern.repeat(1,1,1,seq_len)
+        cluster_prob_hard = cluster_prob_soft + (cluster_prob_extend - cluster_prob_soft).detach()
+        return cluster_prob_hard  #[n_cluster, n_vars, seq_len, B]
+
+class Attention_cluster_assigner(nn.Module):
     def __init__(self, n_vars, n_cluster, seq_len, d_model, device='cuda', epsilon=0.05):
-        super(Cluster_assigner, self).__init__()
+        super(Attention_cluster_assigner, self).__init__()
         self.n_vars = n_vars
         self.n_cluster = n_cluster
         self.d_model = d_model
@@ -35,30 +66,28 @@ class Cluster_assigner(nn.Module):
         self.p2c = CrossAttention(d_model, n_heads=1)
         self.i = 0
 
-    def forward(self, x, cluster_emb, return_type='individual'):     
+    def forward(self, x, cluster_emb, return_type='individual'):
         # x: [bs, seq_len, n_vars]
         # cluster_emb: [n_cluster, d_model]
         n_vars = x.shape[-1]
-        x = x.permute(0,2,1)
-        x_emb = self.linear(x).reshape(-1, self.d_model)      #[bs*n_vars, d_model]
+        x = x.permute(0, 2, 1)
+        x_emb = self.linear(x).reshape(-1, self.d_model)  # [bs*n_vars, d_model]
         bn = x_emb.shape[0]
-        bs = max(int(bn/n_vars), 1) 
+        bs = max(int(bn / n_vars), 1)
         prob = torch.mm(self.l2norm(x_emb), self.l2norm(cluster_emb).t()).reshape(bs, n_vars, self.n_cluster)
         # prob: [bs, n_vars, n_cluster]
         prob_temp = prob.reshape(-1, self.n_cluster)
-        prob_temp = sinkhorn(prob_temp, epsilon=self.epsilon) # [n_vars*bs, n_cluster]
-        prob_avg = torch.mean(prob, dim=0)    #[n_vars, n_cluster]
+        prob_temp = sinkhorn(prob_temp, epsilon=self.epsilon)  # [n_vars*bs, n_cluster]
+        prob_avg = torch.mean(prob, dim=0)  # [n_vars, n_cluster]
         prob_avg = sinkhorn(prob_avg, epsilon=self.epsilon)
-        mask = self.concrete_bern(prob_avg)   #[bs, n_vars, n_cluster]
+        mask = self.concrete_bern(prob_avg)  # [bs, n_vars, n_cluster]
 
-        x_emb_ = x_emb.reshape(bs, n_vars,-1)
-        cluster_emb_ = cluster_emb.repeat(bs,1,1)
-        cluster_emb = self.p2c(cluster_emb_, x_emb_, x_emb_, mask=mask.transpose(0,1))
-        cluster_emb_avg = torch.mean(cluster_emb, dim=0)
-        #print(cluster_emb.shape, cluster_emb_.shape, x_emb_.shape, mask.shape)
+        x_emb_ = x_emb.reshape(bs, n_vars, -1)
+        cluster_emb_ = cluster_emb.repeat(bs, 1, 1)
+        cluster_emb_out = self.p2c(cluster_emb_, x_emb_, x_emb_, mask=mask.transpose(0, 1))
+        cluster_emb_avg = torch.mean(cluster_emb_out, dim=0)
 
-        #print(f'prob_avg: {prob_avg.shape}, prob_temp: {prob_temp.shape}, prob: {prob.shape}')
-    
+        # Return variable names unified: prob, cluster_emb, x_emb
         if return_type == 'individual':
             return prob_temp.reshape(prob.shape), cluster_emb_avg, x_emb
         elif return_type == 'average':
@@ -145,7 +174,7 @@ class MaskAttention(nn.Module):
         V = torch.einsum("bhls,bshd->blhd", A, values)
     
         return V.contiguous()
-    
+
 class Cluster_wise_linear(nn.Module):
     def __init__(self, n_cluster, n_vars, in_dim, out_dim, device='cuda'):
         super().__init__()
@@ -285,316 +314,30 @@ class KMeans_cluster_assigner(nn.Module):
         
         return cluster_assignments, centroids
 
-    def forward(self, x, return_type='individual'):
+    def forward(self, x, cluster_emb=None, return_type='individual'):
         '''
         x: [bs, seq_len, n_vars]
         return_type: 'individual' or 'average'
         return: 
             - prob: [bs, n_vars, n_cluster] if individual, [n_vars, n_cluster] if average
-            - centroids: [n_cluster, d_model]
+            - cluster_emb: [n_cluster, d_model]
             - x_emb: [bs*n_vars, d_model]
         '''
         n_vars = x.shape[-1]
-        x = x.permute(0,2,1)  #[bs, n_vars, seq_len]
-        x_emb = self.linear(x).reshape(-1, self.d_model)  #[bs*n_vars, d_model]
+        x = x.permute(0, 2, 1)  # [bs, n_vars, seq_len]
+        x_emb = self.linear(x).reshape(-1, self.d_model)  # [bs*n_vars, d_model]
         bn = x_emb.shape[0]
-        bs = max(int(bn/n_vars), 1)
+        bs = max(int(bn / n_vars), 1)
 
         # KMeans 클러스터링 수행
         cluster_assignments, updated_centroids = self.kmeans_clustering(x_emb, self.centroids)
-        
+
         # 클러스터 할당 결과를 확률 형태로 변환 [bs*n_vars, n_cluster]
         prob = cluster_assignments.reshape(bs, n_vars, self.n_cluster)  # [bs, n_vars, n_cluster]
 
+        # Return variable names unified: prob, cluster_emb, x_emb
         if return_type == 'individual':
-            # 각 배치의 개별 클러스터 할당 반환
             return prob, updated_centroids, x_emb
         elif return_type == 'average':
-            # 배치 전체의 평균 클러스터 할당 반환
             prob_avg = prob.mean(dim=0)  # [n_vars, n_cluster]
             return prob_avg, updated_centroids, x_emb
-
-
-    
-class DBSCAN_cluster_assigner(nn.Module):
-    def __init__(self, n_vars, n_cluster, seq_len, d_model, device='cpu', eps=0.5, min_samples=5):
-        super(DBSCAN_cluster_assigner, self).__init__()
-        self.n_vars = n_vars
-        self.n_cluster = n_cluster  # 최대 클러스터 수 (실제로는 DBSCAN이 자동으로 결정)
-        self.seq_len = seq_len
-        self.d_model = d_model
-        self.device = device
-        self.eps = eps  # 이웃으로 간주할 최대 거리
-        self.min_samples = min_samples  # 핵심 포인트가 되기 위한 최소 이웃 수
-        
-        # 각 채널을 임베딩 하기 위한 선형 레이어 선언
-        self.linear = nn.Linear(seq_len, d_model)
-        
-        # DBSCAN은 centroid가 없지만, 호환성을 위해 더미 파라미터 생성
-        self.dummy_centroids = nn.Parameter(torch.randn(n_cluster, d_model).to(device), requires_grad=False)
-
-    def dbscan_clustering(self, x_emb):
-        '''
-        완전 벡터화된 Torch 기반 DBSCAN 클러스터링 (최대 GPU 활용)
-        x_emb: [N, d_model] - 임베딩된 채널들
-        return: 
-            - cluster_assignments [N, n_cluster] - 각 샘플의 클러스터 할당 (one-hot)
-            - cluster_centers [n_cluster, d_model] - 각 클러스터의 중심
-        '''
-        N = x_emb.shape[0]
-        device = x_emb.device
-        
-        # 모든 포인트 간의 거리 행렬 계산 (한 번만)
-        distances = torch.cdist(x_emb, x_emb, p=2)  # [N, N]
-        
-        # 각 포인트의 이웃 찾기 (자기 자신 제외) - 완전 벡터화
-        neighbors = (distances <= self.eps) & (~torch.eye(N, dtype=torch.bool, device=device))
-        neighbor_counts = neighbors.sum(dim=1)  # 각 포인트의 이웃 수
-        
-        # 핵심 포인트 찾기 (이웃이 min_samples 이상)
-        core_points = neighbor_counts >= self.min_samples
-        
-        # 연결 성분 찾기 (Union-Find를 행렬 연산으로 근사)
-        # 핵심 포인트들 간의 연결성을 계산
-        core_indices = torch.where(core_points)[0]
-        
-        if len(core_indices) == 0:
-            # 핵심 포인트가 없으면 모두 노이즈
-            cluster_labels = torch.zeros(N, dtype=torch.long, device=device)
-            num_clusters_found = 1
-        else:
-            # 핵심 포인트들 간의 연결 그래프 구축
-            core_neighbors = neighbors[core_indices][:, core_indices]
-            
-            # 전이적 폐포(transitive closure) 계산으로 연결 성분 찾기
-            # 반복적으로 연결성을 확장
-            connectivity = core_neighbors.clone().float()
-            for _ in range(min(10, len(core_indices))):  # 최대 10번 반복으로 제한
-                connectivity = torch.mm(connectivity, connectivity).clamp(0, 1)
-            
-            # 연결 성분에 클러스터 ID 할당
-            visited = torch.zeros(len(core_indices), dtype=torch.bool, device=device)
-            cluster_labels = torch.full((N,), -1, dtype=torch.long, device=device)
-            current_cluster = 0
-            
-            for i in range(len(core_indices)):
-                if visited[i]:
-                    continue
-                
-                # i와 연결된 모든 핵심 포인트 찾기
-                component = connectivity[i] > 0
-                visited |= component
-                
-                # 이 연결 성분의 모든 핵심 포인트
-                component_cores = core_indices[component]
-                
-                # 핵심 포인트들에 클러스터 ID 할당
-                cluster_labels[component_cores] = current_cluster
-                
-                # 핵심 포인트들의 이웃(경계 포인트)도 같은 클러스터에 할당
-                component_neighbors = neighbors[component_cores].any(dim=0)
-                cluster_labels[component_neighbors] = current_cluster
-                
-                current_cluster += 1
-            
-            num_clusters_found = current_cluster
-        
-        # 노이즈 포인트들을 가장 가까운 클러스터에 할당 (선택적)
-        noise_mask = cluster_labels == -1
-        if noise_mask.any():
-            noise_indices = torch.where(noise_mask)[0]
-            clustered_indices = torch.where(~noise_mask)[0]
-            
-            if len(clustered_indices) > 0:
-                # 노이즈 포인트와 클러스터된 포인트 간 거리
-                noise_to_clustered_dist = distances[noise_indices][:, clustered_indices]
-                # 가장 가까운 클러스터된 포인트 찾기
-                nearest_clustered = clustered_indices[noise_to_clustered_dist.argmin(dim=1)]
-                # 해당 클러스터에 할당
-                cluster_labels[noise_indices] = cluster_labels[nearest_clustered]
-        
-        # n_cluster 맞추기 (패딩 또는 병합)
-        if num_clusters_found > self.n_cluster:
-            # 클러스터가 너무 많으면 작은 클러스터들을 병합
-            unique_labels, counts = torch.unique(cluster_labels, return_counts=True)
-            # 가장 큰 n_cluster 개만 유지
-            _, top_k_indices = torch.topk(counts, min(self.n_cluster, len(counts)))
-            top_k_labels = unique_labels[top_k_indices]
-            
-            # 작은 클러스터들을 가장 가까운 큰 클러스터에 병합
-            new_labels = torch.full_like(cluster_labels, -1)
-            for new_id, old_label in enumerate(top_k_labels):
-                new_labels[cluster_labels == old_label] = new_id
-            
-            # 병합되지 않은 포인트들을 가장 가까운 클러스터에 할당
-            unassigned_mask = new_labels == -1
-            if unassigned_mask.any():
-                unassigned_indices = torch.where(unassigned_mask)[0]
-                assigned_indices = torch.where(~unassigned_mask)[0]
-                
-                unassigned_to_assigned_dist = distances[unassigned_indices][:, assigned_indices]
-                nearest_assigned = assigned_indices[unassigned_to_assigned_dist.argmin(dim=1)]
-                new_labels[unassigned_indices] = new_labels[nearest_assigned]
-            
-            cluster_labels = new_labels
-            num_clusters_found = self.n_cluster
-        
-        # One-hot 인코딩 (n_cluster 크기로 패딩)
-        if num_clusters_found < self.n_cluster:
-            # 부족한 클러스터는 빈 클러스터로 남김
-            cluster_assignments = torch.zeros(N, self.n_cluster, device=x_emb.device)
-            cluster_assignments.scatter_(1, cluster_labels.unsqueeze(1), 1.0)
-        else:
-            cluster_assignments = F.one_hot(cluster_labels, num_classes=self.n_cluster).float()
-        
-        # 각 클러스터의 중심 계산 (완전 벡터화)
-        cluster_centers = torch.zeros(self.n_cluster, self.d_model, device=device)
-        if num_clusters_found > 0:
-            # One-hot 인코딩을 이용한 벡터화된 중심 계산
-            # cluster_labels를 one-hot으로 변환
-            labels_onehot = F.one_hot(cluster_labels.clamp(min=0), num_classes=max(num_clusters_found, 1)).float()  # [N, num_clusters]
-            # 각 클러스터의 포인트 수
-            cluster_sizes = labels_onehot.sum(dim=0, keepdim=True).T  # [num_clusters, 1]
-            # 각 클러스터의 중심 계산 (행렬 곱으로)
-            cluster_centers[:num_clusters_found] = torch.mm(labels_onehot.T, x_emb) / (cluster_sizes + 1e-10)
-        
-        # 빈 클러스터는 랜덤 포인트로 초기화 (벡터화)
-        if num_clusters_found < self.n_cluster:
-            random_indices = torch.randint(0, N, (self.n_cluster - num_clusters_found,), device=device)
-            cluster_centers[num_clusters_found:] = x_emb[random_indices]
-        
-        return cluster_assignments, cluster_centers
-
-    def forward(self, x, return_type='individual'):
-        '''
-        x: [bs, seq_len, n_vars]
-        return_type: 'individual' or 'average'
-        return: 
-            - prob: [bs, n_vars, n_cluster] if individual, [n_vars, n_cluster] if average
-            - cluster_centers: [n_cluster, d_model]
-            - x_emb: [bs*n_vars, d_model]
-        '''
-        n_vars = x.shape[-1]
-        x = x.permute(0, 2, 1)  # [bs, n_vars, seq_len]
-        x_emb = self.linear(x).reshape(-1, self.d_model)  # [bs*n_vars, d_model]
-        bn = x_emb.shape[0]
-        bs = max(int(bn / n_vars), 1)
-
-        # DBSCAN 클러스터링 수행
-        cluster_assignments, cluster_centers = self.dbscan_clustering(x_emb)
-        
-        # 클러스터 할당 결과를 reshape
-        prob = cluster_assignments.reshape(bs, n_vars, self.n_cluster)  # [bs, n_vars, n_cluster]
-
-        if return_type == 'individual':
-            # 각 배치의 개별 클러스터 할당 반환
-            return prob, cluster_centers, x_emb
-        elif return_type == 'average':
-            # 배치 전체의 평균 클러스터 할당 반환
-            prob_avg = prob.mean(dim=0)  # [n_vars, n_cluster]
-            return prob_avg, cluster_centers, x_emb
-    
-class Hierarchical_cluster_assigner(nn.Module):
-    def __init__(self, n_vars, n_cluster, seq_len, d_model, device='cuda', linkage='ward'):
-        super(Hierarchical_cluster_assigner, self).__init__()
-        self.n_vars = n_vars
-        self.n_cluster = n_cluster
-        self.seq_len = seq_len
-        self.d_model = d_model
-        self.device = device
-        self.linkage = linkage
-
-        # 각 채널을 임베딩 하기 위한 선형 레이어 선언
-        self.linear = nn.Linear(seq_len, d_model)
-
-        # Hierarchical 클러스터링을 위한 파라미터 (예: 덴드로그램의 높이 정보 등)
-        # 실제 구현에 따라 필요한 파라미터를 추가
-        self.threshold = nn.Parameter(torch.tensor(0.5), requires_grad=False)  # 클러스터링 임계값
-
-    def hierarchical_clustering(self, x_emb):
-        '''
-        Torch 기반 Hierarchical 클러스터링
-        x_emb: [N, d_model] - 임베딩된 채널들
-        return: 
-            - cluster_assignments [N, n_cluster] - 각 샘플의 클러스터 할당 (one-hot)
-            - cluster_centers [n_cluster, d_model] - 각 클러스터의 중심
-        '''
-        N = x_emb.shape[0]
-        
-        # 모든 포인트 간의 거리 행렬 계산
-        distances = torch.cdist(x_emb, x_emb, p=2)  # [N, N]
-        
-        # 초기화
-        cluster_labels = torch.zeros(N, dtype=torch.long, device=x_emb.device)  # 클러스터 레이블 (0부터 시작)
-        current_cluster = 0
-        
-        # 연결 기준에 따라 클러스터링 수행
-        if self.linkage == 'ward':
-            # Ward의 연결 기준: 클러스터 간 거리 최소화
-            from scipy.cluster.hierarchy import linkage as sch_linkage, fcluster
-            import numpy as np
-
-            # SciPy의 계층적 군집화 사용
-            linkage_matrix = sch_linkage(distances.cpu().numpy(), method='ward')
-            
-            # 덴드로그램 잘라내기 (클러스터 수에 따라)
-            cluster_ids = fcluster(linkage_matrix, t=self.n_cluster, criterion='maxclust')
-            
-            # 클러스터 레이블 매핑
-            cluster_labels = torch.tensor(cluster_ids, device=x_emb.device) - 1  # 0부터 시작하도록 조정
-
-        elif self.linkage == 'average':
-            # 평균 연결: 클러스터 간 평균 거리 최소화
-            pass  # 구현 필요
-
-        elif self.linkage == 'complete':
-            # 완전 연결: 클러스터 간 최대 거리 최소화
-            pass  # 구현 필요
-
-        elif self.linkage == 'single':
-            # 단일 연결: 클러스터 간 최소 거리 최소화
-            pass  # 구현 필요
-
-        # 클러스터 할당 결과를 reshape
-        cluster_assignments = F.one_hot(cluster_labels, num_classes=self.n_cluster).float()
-        
-        # 각 클러스터의 중심 계산
-        cluster_centers = torch.zeros(self.n_cluster, self.d_model, device=x_emb.device)
-        for k in range(self.n_cluster):
-            mask = (cluster_labels == k)
-            if mask.sum() > 0:
-                cluster_centers[k] = x_emb[mask].mean(dim=0)
-            else:
-                # 빈 클러스터는 랜덤 포인트로 초기화
-                cluster_centers[k] = x_emb[torch.randint(0, N, (1,))].squeeze(0)
-        
-        return cluster_assignments, cluster_centers
-
-    def forward(self, x, return_type='individual'):
-        '''
-        x: [bs, seq_len, n_vars]
-        return_type: 'individual' or 'average'
-        return: 
-            - prob: [bs, n_vars, n_cluster] if individual, [n_vars, n_cluster] if average
-            - cluster_centers: [n_cluster, d_model]
-            - x_emb: [bs*n_vars, d_model]
-        '''
-        n_vars = x.shape[-1]
-        x = x.permute(0, 2, 1)  # [bs, n_vars, seq_len]
-        x_emb = self.linear(x).reshape(-1, self.d_model)  # [bs*n_vars, d_model]
-        bn = x_emb.shape[0]
-        bs = max(int(bn / n_vars), 1)
-
-        # Hierarchical 클러스터링 수행
-        cluster_assignments, cluster_centers = self.hierarchical_clustering(x_emb)
-        
-        # 클러스터 할당 결과를 reshape
-        prob = cluster_assignments.reshape(bs, n_vars, self.n_cluster)  # [bs, n_vars, n_cluster]
-
-        if return_type == 'individual':
-            # 각 배치의 개별 클러스터 할당 반환
-            return prob, cluster_centers, x_emb
-        elif return_type == 'average':
-            # 배치 전체의 평균 클러스터 할당 반환
-            prob_avg = prob.mean(dim=0)  # [n_vars, n_cluster]
-            return prob_avg, cluster_centers, x_emb

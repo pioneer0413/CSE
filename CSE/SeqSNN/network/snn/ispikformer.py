@@ -6,12 +6,12 @@ from spikingjelly.activation_based import surrogate, neuron, functional
 from ..base import NETWORKS
 from ...module.spike_encoding import SpikeEncoder
 from ...module.spike_attention import Block
-
+from ...module.clustering import CSEv1 # clustering
+import torch
 
 tau = 2.0  # beta = 1 - 1/tau
 backend = "torch"
 detach_reset = True
-
 
 class DataEmbedding_inverted(nn.Module):
     def __init__(self, c_in, d_model):
@@ -58,7 +58,7 @@ class iSpikformer(nn.Module):
         # clustering
         use_cluster: bool = False,
         n_cluster: int = 3,
-        d_model: int = 128,
+        d_model: int = 64,
         cluster_method: str = 'attention',
         device: int = 0,
     ):
@@ -92,6 +92,16 @@ class iSpikformer(nn.Module):
         self.cluster_method = cluster_method
         self.device = device
 
+        if self.use_cluster:
+            self.cse = CSEv1(
+                n_vars=input_size,
+                n_cluster=n_cluster,
+                seq_len=max_length,
+                d_model=d_model,
+                method=cluster_method,
+                device=device,
+            )
+
         self.apply(self._init_weights)
 
 
@@ -111,6 +121,11 @@ class iSpikformer(nn.Module):
         x = self.encoder(inputs)  # B L C -> T B C L
 
         x = x.transpose(2, 3)  # T B L C
+
+        if self.use_cluster:
+            cluster_prob_hard = self.cse(inputs)  # [n_cluster, B, C, L]
+            cluster_prob_hard = cluster_prob_hard.transpose(2, 3)  # n_cluster, B, L, C
+            x = torch.cat((x, cluster_prob_hard), dim=0)
 
         x = self.emb(x)  # T B C H
         for blk in self.blocks:

@@ -31,7 +31,7 @@ network:
   num_pe_neuron: 40
   neuron_pe_scale: 1000.0
   use_cluster: False
-  n_cluster: 10
+  n_cluster: 3
   d_model: 64
   cluster_method: attention
 

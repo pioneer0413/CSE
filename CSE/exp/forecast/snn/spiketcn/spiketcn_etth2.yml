@@ -17,7 +17,7 @@ runner:
   lower_is_better: True
   max_epoches: 1000
   early_stop: 30
-  batch_size: 256
+  batch_size: 16
   aggregate: True
 
 network:
@@ -34,6 +34,9 @@ network:
   pe_mode: concat
   num_pe_neuron: 40
   neuron_pe_scale: 10000.0
+  use_cluster: False
+  n_cluster: 3
+  d_model: 64
 
 runtime: 
   seed: 42

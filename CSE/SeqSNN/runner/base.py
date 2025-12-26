@@ -43,6 +43,7 @@ class BaseRunner(nn.Module):
         model_path: Optional[str] = None,
         output_dir: Optional[Path] = None,
         checkpoint_dir: Optional[Path] = None,
+        device: Optional[int] = 0,
     ) -> None:
         super().__init__()
         if not hasattr(self, "hyper_paras"):
@@ -66,19 +67,8 @@ class BaseRunner(nn.Module):
             self.load(model_path)
         # multi gpu
         if torch.cuda.is_available():
-            print("Using GPU")
-            if hasattr(network, 'device'):
-                self.device = network.device
-                print(f'network.device: {self.device}')
-                if isinstance(self.device, int):
-                    device = torch.device('cuda', self.device)
-                else:
-                    device = self.device
-                self.to(device)
-            else:
-                print('network.device not found')
-                self.device = torch.device("cuda")
-                self.to('cuda')
+            self.device = device
+            self.to(device)
 
     def _build_network(self, network, *args, **kwargs) -> None:
         # TODO: encoder decoder decompose
@@ -232,9 +222,9 @@ class BaseRunner(nn.Module):
                     label = label[:, self.out_ranges]
 
                 loss = self.loss_fn(label.squeeze(-1), pred.squeeze(-1))
-                if hasattr(self.network, "use_cluster") and self.network.use_cluster == True and self.network.cluster_method == 'attention':
+                if hasattr(self.network, "use_cluster") and self.network.use_cluster == True and self.network.cse.method_type == 'attention':
                     sim_matrix = get_similarity_matrix_update(data)
-                    cluster_loss = similarity_loss_batch(self.network.cluster_prob, sim_matrix)
+                    cluster_loss = similarity_loss_batch(self.network.cse.cluster_prob, sim_matrix)
                     loss = loss + beta * cluster_loss
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -421,9 +411,9 @@ class BaseRunner(nn.Module):
                     label = label[:, self.out_ranges]
                 # print(pred, label)
                 loss = self.loss_fn(label.squeeze(-1), pred.squeeze(-1))
-                if hasattr(self.network, "use_cluster") and self.network.use_cluster == True and self.network.cluster_method == 'attention':
+                if hasattr(self.network, "use_cluster") and self.network.use_cluster == True and self.network.cse.method_type == 'attention':
                     sim_matrix = get_similarity_matrix_update(data)
-                    cluster_loss = similarity_loss_batch(self.network.cluster_prob, sim_matrix)
+                    cluster_loss = similarity_loss_batch(self.network.cse.cluster_prob, sim_matrix)
                     loss = loss + beta * cluster_loss
                 loss = loss.item()
                 eval_loss.update(loss, np.prod(label.shape))

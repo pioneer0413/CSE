@@ -173,4 +173,5 @@ network_link
 .github
 
 # Test
-.test_cache.json
+.test_gpu.json
+.test_result.json

@@ -22,6 +22,7 @@ class TSRNN(nn.Module):
         max_length: int = 100,
         input_size: Optional[int] = None,
         weight_file: Optional[Path] = None,
+        device: int = 0,
     ):
         """The RNN network for time-series prediction.
 
@@ -36,12 +37,14 @@ class TSRNN(nn.Module):
             max_length: Maximum length of the input sequence.
             input_size: Input size of the time-series data.
             weight_file: Path to the pretrained model.
+            device: Device id (default 0).
 
         Raises:
             ValueError: If `cell_type` is not supported.
             ValueError: If `emb_type` is not supported.
         """
         super().__init__()
+        self.device = device
         Cell = get_cell(cell_type)
 
         self.encoder = nn.Sequential(nn.Linear(input_size, hidden_size), nn.ReLU())

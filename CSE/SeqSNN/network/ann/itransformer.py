@@ -192,6 +192,7 @@ class ITransformer(nn.Module):
         class_strategy: str = "projection",
         input_size: Optional[int] = None,
         weight_file: Optional[Path] = None,
+        device: int = 0,
     ):
         """
         Initialize the ITransformer model.
@@ -214,8 +215,10 @@ class ITransformer(nn.Module):
                 Unused in the original repository. Defaults to "projection".
             input_size (Optional[int], optional): Size of the input. Defaults to None.
             weight_file (Optional[Path], optional): Path to the weight file. Defaults to None.
+            device (int, optional): Device id. Defaults to 0.
         """
         super().__init__()
+        self.device = device
         self.input_size = input_size
         self.max_length = max_length
         self.output_attention = output_attention

@@ -17,7 +17,7 @@ runner:
   lower_is_better: True
   max_epoches: 1000
   early_stop: 30
-  batch_size: 128
+  batch_size: 32
   aggregate: True
 
 network:

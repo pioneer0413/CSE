@@ -9,8 +9,7 @@ from ...module.positional_encoding import PositionEmbedding
 from ...module.spike_encoding import SpikeEncoder
 from ..base import NETWORKS
 
-# clustering
-from ...module.clustering import Cluster_assigner, cluster_base_encoding, KMeans_cluster_assigner, DBSCAN_cluster_assigner, Hierarchical_cluster_assigner
+from ...module.clustering import CSEv1 # clustering
 
 # clustering result saving
 import os
@@ -48,7 +47,6 @@ class SpikeRNNCell(nn.Module):
         x = self.lif(x)  # T, B, L, C'
         #print(f'[SpikeRNNCell] spike count: {x.sum()}({x.numel()})')
         return x
-
 
 @NETWORKS.register_module("SpikeRNN")
 class SpikeRNN(nn.Module):
@@ -120,9 +118,15 @@ class SpikeRNN(nn.Module):
         self.__output_size = self.dim
 
         self.use_cluster = use_cluster
-        self.n_cluster = n_cluster
-        self.d_model = d_model
-        self.cluster_method = cluster_method
+        if self.use_cluster:
+            self.cse = CSEv1(
+                n_vars=input_size,
+                n_cluster=n_cluster,
+                seq_len=max_length,
+                d_model=d_model,
+                method=cluster_method,
+                device=device,
+            )
 
     def forward(
         self,
@@ -133,14 +137,7 @@ class SpikeRNN(nn.Module):
         
         # clustering
         if self.use_cluster:
-            
-            if self.cluster_method == 'attention':
-                cluster_prob, cluster_emb, x_emb = self.cluster_assigner(
-                    inputs, self.cluster_assigner.cluster_emb)
-                self.cluster_prob = cluster_prob
-            else:
-                cluster_prob, cluster_emb, x_emb = self.cluster_assigner(inputs)
-            cluster_prob_hard = cluster_base_encoding(cluster_prob, hiddens.size(3))
+            cluster_prob_hard = self.cse(inputs)  # [n_cluster, n_vars, seq_len, B]
             hiddens = torch.cat((hiddens, cluster_prob_hard), dim=0)
 
         hiddens = hiddens.transpose(-2, -1)  # T, B, L, C

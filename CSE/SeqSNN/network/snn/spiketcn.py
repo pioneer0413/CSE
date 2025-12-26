@@ -13,7 +13,7 @@ from ...module.spike_encoding import SpikeEncoder
 from ..base import NETWORKS
 
 # clustering
-from ...module.clustering import Cluster_assigner, cluster_base_encoding
+from ...module.clustering import CSEv1 # clustering
 
 threshold = 2.0
 
@@ -147,7 +147,7 @@ class SpikeTemporalConvNet2D(nn.Module):
         # clustering
         use_cluster: bool = False,
         n_cluster: int = 3,
-        d_model: int = 8,
+        d_model: int = 64,
         cluster_method: str = 'attention',
         device: int = 0,
     ):
@@ -206,12 +206,13 @@ class SpikeTemporalConvNet2D(nn.Module):
         self.use_cluster = use_cluster
         self.device = device
         if self.use_cluster:
-            self.cluster_assigner = Cluster_assigner(
+            self.cse = CSEv1(
                 n_vars=input_size,
                 n_cluster=n_cluster,
                 seq_len=max_length,
                 d_model=d_model,
-                device=self.device,
+                method=cluster_method,
+                device=device,
             )
 
     def forward(self, inputs: torch.Tensor):
@@ -222,13 +223,10 @@ class SpikeTemporalConvNet2D(nn.Module):
         hiddens = self.encoder(inputs)  # B, H, C, L
 
         if self.use_cluster:
-            cluster_prob, cluster_emb = self.cluster_assigner(
-                inputs, self.cluster_assigner.cluster_emb
-            )
-            cluster_prob_hard = cluster_base_encoding(cluster_prob, hiddens.size(3))
-            cluster_prob_hard = cluster_prob_hard.transpose(1, 0) # H, B, C, L -> B, H, C, L
+            cluster_prob_hard = self.cse(inputs)  # [n_cluster, n_vars, seq_len, B]
+            cluster_prob_hard = cluster_prob_hard.transpose(1, 0)  # H, B, C, L -> B, H, C, L
             hiddens = torch.cat((hiddens, cluster_prob_hard), dim=1)
-            
+
         if self.pe_type != "none":
             # B, H, C, L -> H B L C' -> B H C' L
             hiddens = self.pe(hiddens.permute(1, 0, 3, 2)).permute(1, 0, 3, 2)
