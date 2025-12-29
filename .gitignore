@@ -175,3 +175,4 @@ network_link
 # Test
 .test_gpu.json
 .test_result.json
+aggregated_results.csv

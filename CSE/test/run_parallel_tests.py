@@ -30,10 +30,10 @@ MODELS = [
     ("TCN", "exp/forecast/ann/tcn/tcn_{}.yml", []),
     ("iSpikformer", "exp/forecast/snn/ispikformer/ispikformer_{}.yml", []),
     ("SpikeRNN", "exp/forecast/snn/spikernn/spikernn_{}.yml", []),
-    ("SpikeTCN", "exp/forecast/snn/spiketcn/spiketcn_{}.yml", []),
-    ("iSpikformer", "exp/forecast/snn/ispikformer/ispikformer_{}.yml", ["--network.use_cluster", "True", "--network.n_cluster", "3"]),
+    #("SpikeTCN", "exp/forecast/snn/spiketcn/spiketcn_{}.yml", []),
+    #("iSpikformer", "exp/forecast/snn/ispikformer/ispikformer_{}.yml", ["--network.use_cluster", "True", "--network.n_cluster", "3"]),
     ("SpikeRNN", "exp/forecast/snn/spikernn/spikernn_{}.yml", ["--network.use_cluster", "True", "--network.n_cluster", "3"]),
-    ("SpikeTCN", "exp/forecast/snn/spiketcn/spiketcn_{}.yml", ["--network.use_cluster", "True", "--network.n_cluster", "3"]),
+    #("SpikeTCN", "exp/forecast/snn/spiketcn/spiketcn_{}.yml", ["--network.use_cluster", "True", "--network.n_cluster", "3"]),
 ]
 DATASETS = ["electricity", "etth1", "etth2", "weather"] # "solar", "metr-la"
 SEEDS = [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]
@@ -61,6 +61,10 @@ results = {}
 
 for exp in EXPERIMENTS:
     net, config_path, extra_args, output_dir = exp
+    config_file = os.path.join(output_dir, "config.json")
+    if os.path.exists(config_file):
+        print(f"Skipping {net} for {output_dir}: already running or completed")
+        continue
     gpu_id = get_least_used_gpu()
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
