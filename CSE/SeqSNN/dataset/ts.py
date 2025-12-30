@@ -12,7 +12,7 @@ from sktime import datasets
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 
-from .tsforecast import DATASETS
+from .registry import DATASETS
 from .utils import load_from_tsfile_to_dataframe
 
 logger = logging.getLogger(__name__)

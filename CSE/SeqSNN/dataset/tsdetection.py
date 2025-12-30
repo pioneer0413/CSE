@@ -10,22 +10,19 @@ from .registry import DATASETS
 
 
 @DATASETS.register_module()
-class TSMSDataset(Dataset):
+class TSADDataset(Dataset):
     def __init__(
         self,
         file: str,
         window: int,
-        horizon: int,
         train_ratio: float = 0.8,
         test_ratio: float = 0.2,
         normalize: int = 2,
-        last_label: bool = False,
         raw_label: bool = True,
         dataset_name: Optional[str] = None,
         is_vsts: bool = False,
     ):
         self.window = window
-        self.horizon = horizon
         if file.endswith(".txt"):
             with open(file) as f:
                 self.raw_data = np.loadtxt(f, delimiter=",").astype(np.float32)
@@ -48,12 +45,16 @@ class TSMSDataset(Dataset):
                 columns={"index": "date"}
             )
             self.dates = time_features(self.dates, freq="t")
-        self.dat = np.zeros(self.raw_data.shape, dtype=np.float32)
+        
+        # Separate data and labels: last column is label
+        self.data = self.raw_data[:, :-1]
+        self.labels = self.raw_data[:, -1]
+        
+        self.dat = np.zeros(self.data.shape, dtype=np.float32)
         self.n, self.m = self.dat.shape
         if (train_ratio + test_ratio) == 1 and dataset_name == "valid":
             dataset_name = "test"
         self.dataset_name = dataset_name
-        self.last_label = last_label
         self.raw_label = raw_label
         self._normalized(normalize)
         self._split(train_ratio, test_ratio, self.dataset_name)
@@ -62,31 +63,31 @@ class TSMSDataset(Dataset):
         # normalized by the maximum value of entire matrix.
 
         if normalize == 0:
-            self.dat = self.raw_data
+            self.dat = self.data
 
         elif normalize == 1:
-            self.dat = self.raw_data / np.max(self.raw_data)
+            self.dat = self.data / np.max(self.data)
 
         # normlized by the maximum value of each row(sensor).
         elif normalize == 2:
             for i in range(self.m):
-                self.dat[:, i] = self.raw_data[:, i] / np.max(
-                    np.abs(self.raw_data[:, i])
+                self.dat[:, i] = self.data[:, i] / np.max(
+                    np.abs(self.data[:, i])
                 )
 
         elif normalize == 3:
-            self.dat = (self.raw_data - np.mean(self.raw_data)) / (
-                np.std(self.raw_data) + np.finfo(float).eps
+            self.dat = (self.data - np.mean(self.data)) / (
+                np.std(self.data) + np.finfo(float).eps
             )
 
         # variable-wise Z-normalization
         elif normalize == 4:
-            self.dat = (self.raw_data - np.mean(self.raw_data, axis=0)) / (
-                np.std(self.raw_data, axis=0) + np.finfo(float).eps
+            self.dat = (self.data - np.mean(self.data, axis=0)) / (
+                np.std(self.data, axis=0) + np.finfo(float).eps
             )
 
     def _split(self, train_ratio, test_ratio, dataset_name):
-        total_size = self.n - self.window - self.horizon + 1
+        total_size = self.n - self.window + 1
         train_size = int(total_size * train_ratio)
         test_size = int(total_size * test_ratio)
         valid_size = total_size - test_size - train_size
@@ -111,9 +112,9 @@ class TSMSDataset(Dataset):
     @property
     def num_variables(self):
         if hasattr(self, "dates"):
-            return self.dates.shape[1] + self.raw_data.shape[1]
+            return self.dates.shape[1] + self.data.shape[1]
         else:
-            return self.raw_data.shape[1]
+            return self.data.shape[1]
 
     def __len__(self):
         return self.length
@@ -124,10 +125,7 @@ class TSMSDataset(Dataset):
 
     @property
     def num_classes(self):
-        if self.last_label:
-            return self.horizon
-        else:
-            return self.raw_data.shape[1] * self.horizon
+        return self.window
 
     def get_index(self):
         return np.arange(self.length)
@@ -138,15 +136,6 @@ class TSMSDataset(Dataset):
         # add time features
         if hasattr(self, "dates"):
             X = np.concatenate([X, self.dates[index : index + self.window]], axis=1)
-        if self.raw_label:
-            label_data = self.raw_data
-        else:
-            label_data = self.dat
-        if self.last_label:
-            y = label_data[index + self.window : index + self.window + self.horizon, -1]
-        else:
-            y = label_data[
-                index + self.window : index + self.window + self.horizon, :
-            ].reshape(-1)
+        y = self.labels[index : index + self.window]
         assert len(y) == self.num_classes, (len(y), self.num_classes)
         return X.astype(np.float32), y.astype(np.float32)

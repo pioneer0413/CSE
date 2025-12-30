@@ -12,7 +12,7 @@ runner:
   lr: 0.001
   weight_decay: 0.0
   loss_fn: mse
-  metrics: [r2, rrse]
+  metrics: [r2, rse, mae, mse, corr]
   observe: loss
   lower_is_better: True
   max_epoches: 1000

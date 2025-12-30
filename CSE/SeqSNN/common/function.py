@@ -567,6 +567,8 @@ def get_loss_fn(loss_fn):
         return cross_entropy
     # if loss_fn == 'mape_log':
     #     return partial(mape, log=True)
+    if loss_fn == "bce":
+        return bce
 
     # return function by name
     try:
@@ -593,6 +595,15 @@ def get_metric_fn(eval_metric):
     # return function by name
     # if eval_metric == 'mape_log':
     #     return partial(mape, log=True)
+    
+    # Anomaly detection metrics
+    if eval_metric == "auprc":
+        return auprc
+    if eval_metric == "auc":
+        return auc
+    if eval_metric == "ap":
+        return ap
+    
     try:
         return eval(eval_metric)  # dangerous eval
     except Exception:

@@ -1,0 +1,8 @@
+data:
+  type: TSADDataset
+  file: data/msl.txt
+  window: 200
+  train_ratio: 0.6
+  test_ratio: 0.2
+  normalize: 4
+  raw_label: False

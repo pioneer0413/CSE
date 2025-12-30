@@ -1,0 +1,8 @@
+data:
+  type: TSADDataset
+  file: data/smap.txt
+  window: 240
+  train_ratio: 0.6
+  test_ratio: 0.2
+  normalize: 4
+  raw_label: False

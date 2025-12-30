@@ -1,5 +1,5 @@
 _base_:
-- ../../dataset/metr-la.yml
+- ../../dataset/msl.yml
 _custom_imports_:
 - SeqSNN.network
 - SeqSNN.dataset
@@ -7,12 +7,12 @@ _custom_imports_:
 
 runner:
   type: ts
-  task: regression
+  task: classification
   optimizer: Adam
   lr: 0.001
   weight_decay: 0.0
-  loss_fn: mse
-  metrics: [r2, rse, mae, mse, corr]
+  loss_fn: bce
+  metrics: [ap, auc, auprc]
   observe: loss
   lower_is_better: True
   max_epoches: 1000
@@ -29,7 +29,7 @@ network:
   dropout: 0.5
   num_layers: 2  
   is_bidir: True
-
+  
 runtime:
   seed: 42
-  output_dir: ./output/rnnMetrla
+  output_dir: ./output/rnnMSL
