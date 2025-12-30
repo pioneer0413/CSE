@@ -117,10 +117,11 @@ def clear_cache():
 
 
 
-def run_network_test(network_name: str, config_path: str, use_cluster: bool = False, verbose: bool = False) -> bool:
+def run_network_test(network_name: str, config_path: str, use_cluster: bool = False, verbose: bool = False, single_gpu: int = None) -> bool:
     """
     Test a single network with 1 epoch.
     If use_cluster is True, override clustering-related config via CLI.
+    If single_gpu is not None, set CUDA_VISIBLE_DEVICES.
     """
     print(f"\n{'='*60}")
     print(f"Testing {network_name}...{' (with clustering)' if use_cluster else ''}")
@@ -157,11 +158,16 @@ def run_network_test(network_name: str, config_path: str, use_cluster: bool = Fa
                 "--network.cluster_method", "attention"
             ]
         print(f"Running command: {' '.join(cmd)}")
+        env = os.environ.copy()
+        if single_gpu is not None:
+            env["CUDA_VISIBLE_DEVICES"] = str(single_gpu)
+            print(f"[Info] Using only GPU {single_gpu} (CUDA_VISIBLE_DEVICES={single_gpu})")
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=3000
+            timeout=3000,
+            env=env
         )
         if result.returncode == 0:
             print(f"✅ {network_name} test PASSED")
@@ -190,6 +196,7 @@ def run_network_test(network_name: str, config_path: str, use_cluster: bool = Fa
 
 
 
+
 def main():
     """Run all network tests, including clustering variants. Use --mode simple|extended."""
     parser = argparse.ArgumentParser(description="Test network architectures")
@@ -202,6 +209,7 @@ def main():
     parser.add_argument("--only", type=str, metavar="NETWORK", help="Test only the specified network (by name, add _cluster for clustering variant)")
     parser.add_argument("--mode", type=str, choices=["simple", "extended"], default="simple", help="Test mode: simple (etth1 only) or extended (all datasets)")
     parser.add_argument("--verbose", default=False, action="store_true", help="Show traceback and subprocess output for all tests")
+    parser.add_argument("--single-gpu", type=int, default=None, help="특정 GPU만 사용하려면 device_id 지정")
     args = parser.parse_args()
 
     if args.clear:
@@ -262,7 +270,13 @@ def main():
 
     from datetime import datetime
     for network_name, variant in tests_to_run.items():
-        success = run_network_test(network_name, variant["config"], use_cluster=variant["use_cluster"], verbose=args.verbose)
+        success = run_network_test(
+            network_name,
+            variant["config"],
+            use_cluster=variant["use_cluster"],
+            verbose=args.verbose,
+            single_gpu=args.single_gpu
+        )
         prev = results.get(network_name, {})
         entry = dict(prev)
         entry["timestamp"] = datetime.now().isoformat()
